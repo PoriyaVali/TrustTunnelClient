@@ -191,7 +191,17 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_adguard_trusttunnel_VpnClient_sta
     }
     auto ctx = (VpnCtx *) native_ptr;
 
-    auto error = ctx->get_native_client().connect(ag::TrustTunnelClient::UseTunnelFd{ag::AutoFd::adopt_fd(tun_fd)});
+    // No TUN (a negative fd): let the config's listener decide. A `[listener.socks]` config then
+    // gets its local SOCKS5 proxy, which only `AutoSetup` can create - how an app measures a node
+    // end to end, through the protocol, without a VPN. A TUN config without a fd still fails,
+    // as automatic tunnel creation is unsupported on Android.
+    ag::TrustTunnelClient::ListenerSettings listener;
+    if (tun_fd >= 0) {
+        listener = ag::TrustTunnelClient::UseTunnelFd{ag::AutoFd::adopt_fd(tun_fd)};
+    } else {
+        listener = ag::TrustTunnelClient::AutoSetup{};
+    }
+    auto error = ctx->get_native_client().connect(std::move(listener));
     if (error) {
         errlog(g_logger, "Failed to connect: {}", error->pretty_str());
         return (jboolean) false;
